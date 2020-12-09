@@ -1,0 +1,26 @@
+{
+  "name": "multisigwallet",
+  "version": "1.0.0",
+  "description": "Smart contract based multi sig wallet for tokens",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sammyni/decentralized-mutisig-wallet.git"
+  },
+  "author": "Samuel Ndubuisi <samniwebdev@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/sammyni/decentralized-mutisig-wallet/issues"
+  },
+  "homepage": "https://github.com/sammyni/decentralized-mutisig-wallet#readme",
+  "dependencies": {
+    "dotenv": "^8.2.0",
+    "truffle-hdwallet-provider": "^1.0.17"
+  }
+}

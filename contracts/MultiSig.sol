@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.5.0 <0.8.0;
+pragma solidity >=0.7.0 <0.8.0;
 
+import "./access/Ownable.sol";
 import "./interfaces/IERC20.sol";
 import "./libraries/SafeMath.sol";
 
-contract MultiSig {
+contract MultiSig is Ownable {
 
   using SafeMath for uint256;
 
@@ -66,27 +67,27 @@ contract MultiSig {
   }
 
   modifier isTokenCreator(uint256 _tokenId) {
-    require(tokens[_tokenId].creator == msg.sender, "Token: not token creator.");
+    require(tokens[_tokenId].creator == msg.sender, "Only token creator.");
     _;
   }
 
   modifier isTxInitiator(uint256 _txId) {
-    require(transactions[_txId].initiator == msg.sender, "Transaction: not transaction initiator.");
+    require(transactions[_txId].initiator == msg.sender, "Only transaction initiator.");
     _;
   }
 
   modifier tokenExists(uint256 _tokenId) {
-    require(_tokenId > 0 && _tokenId <= tokenCount, "Token: token not found.");
+    require(_tokenId > 0 && _tokenId <= tokenCount, "Token not found.");
     _;
   }
 
   modifier transactionExists(uint256 _txId) {
-    require(_txId > 0 && _txId <= txCount, "Transaction: Transaction not found.");
+    require(_txId > 0 && _txId <= txCount, "Transaction missing.");
     _;
   }
 
   modifier requestExists(uint256 _requestId) {
-    require(_requestId > 0 && _requestId <= requestCount, "Request: tequest not found.");
+    require(_requestId > 0 && _requestId <= requestCount, "Request not missing.");
     _;
   }
 
@@ -95,7 +96,7 @@ contract MultiSig {
     Token storage t = tokens[_tx.tokenId];
     require(
       ! _tx.approved && ! _tx.rejected && ! _tx.cancelled && _tx.approvals < t.requiredApprovals && _tx.rejects < t.requiredApprovals,
-      "Transaction: transaction not pending."
+      "Transaction not pending."
     );
     _;
   }
@@ -105,27 +106,27 @@ contract MultiSig {
     Token storage t = tokens[gR.tokenId];
     require(
       !gR.approved && !gR.rejected && !gR.cancelled && gR.approvals < t.requiredApprovals && gR.rejects < t.requiredApprovals,
-      "Request: request not pending."
+      "Request not pending."
     );
     _;
   }
 
   modifier isTokenSignatory(uint256 _tokenId) {
-    require(tokenTxApprovers[_tokenId][msg.sender], "Signatory: not a signatory.");
+    require(tokenTxApprovers[_tokenId][msg.sender], "Not valid signatory.");
     _;
   }
 
   modifier canApproveTransaction(uint256 _txId) {
     Transaction storage _tx = transactions[_txId];
-    require(tokenTxApprovers[_tx.tokenId][msg.sender], "Transaction: no approval rights.");
-    require(! _tx.approvers[msg.sender] && ! _tx.rejecters[msg.sender], "Transaction: can not approve more than once.");
+    require(tokenTxApprovers[_tx.tokenId][msg.sender], "No transaction approval rights.");
+    require(! _tx.approvers[msg.sender] && ! _tx.rejecters[msg.sender], " Multiple approvals not supported.");
     _;
   }
 
   modifier canApproveRequest(uint256 _requestId) {
     GovernanceRequest storage gR = requests[_requestId];
-    require(tokenTxApprovers[gR.tokenId][msg.sender], "Request: no approval rights.");
-    require(!gR.approvers[msg.sender] && !gR.rejecters[msg.sender], "Request: can not approve more than once.");
+    require(tokenTxApprovers[gR.tokenId][msg.sender], "No request approval rights.");
+    require(!gR.approvers[msg.sender] && !gR.rejecters[msg.sender], "Multiple request approvals not supported.");
     _;
   }
   
@@ -282,6 +283,7 @@ contract MultiSig {
 
     return true;
   }
+
   function addTokenSignatory(uint256 _tokenId, address _signatory) external tokenExists(_tokenId) isTokenSignatory(_tokenId) returns(bool) {
     
     Token storage t = tokens[_tokenId];
