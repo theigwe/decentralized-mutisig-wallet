@@ -10,20 +10,16 @@ contract MultiSig is Ownable {
 
   using SafeMath for uint256;
 
-  uint constant ADD_SIG_REQ = 11;
-  uint constant REM_SIG_REQ = 22;
-
   struct Token {
     uint256 id;    
     string name;
     string symbol;
     address creator;
     string tokenType;
-    address[] signatories;
+    uint256 balance;
     address contractAddress;
     uint requiredApprovals;
-    uint256 balance;
-    uint256 activeSignatories;
+    uint activeSignatories;
     bool initialized;
   }
 
@@ -38,32 +34,39 @@ contract MultiSig is Ownable {
     uint approvals;
     uint rejects;
     bytes32 txHash;
-    bool approved;
-    bool rejected;
-    bool cancelled;
-    uint256 timeCreated;
-    uint256 timeApproved;
-    uint256 timeRejected;
-    uint256 timeCancelled;
+    ReqStatus status;
+    uint timeCreated;
+    uint timeApproved;
+    uint timeRejected;
+    uint timeCancelled;
   }
 
   struct GovernanceRequest {
     uint256 id;
     uint256 tokenId;
-    uint requestType;
     address signatory;
     address initiator;
+    GovernanceRequestSide requestType;
     mapping(address => bool) approvers;
     mapping(address => bool) rejecters;
     uint approvals;
     uint rejects;
-    bool approved;
-    bool rejected;
-    bool cancelled;
-    uint256 timeCreated;
-    uint256 timeApproved;
-    uint256 timeRejected;
-    uint256 timeCancelled;
+    ReqStatus status;
+    uint timeCreated;
+    uint timeApproved;
+    uint timeRejected;
+    uint timeCancelled;
+  }
+
+  enum GovernanceRequestSide {
+    AddSignatory,
+    RemoveSignatory
+  }
+
+  enum ReqStatus {
+    Approved,
+    Rejected,
+    Cancelled
   }
 
   modifier isTokenCreator(uint256 _tokenId) {
@@ -94,8 +97,13 @@ contract MultiSig is Ownable {
   modifier transactionIsPending(uint256 _txId) {
     Transaction storage _tx = transactions[_txId];
     Token storage t = tokens[_tx.tokenId];
+    ReqStatus _status = _tx.status;
     require(
-      ! _tx.approved && ! _tx.rejected && ! _tx.cancelled && _tx.approvals < t.requiredApprovals && _tx.rejects < t.requiredApprovals,
+      _status != ReqStatus.Approved 
+      && _status != ReqStatus.Rejected 
+      && _status != ReqStatus.Cancelled 
+      && _tx.approvals < t.requiredApprovals 
+      && _tx.rejects < t.requiredApprovals,
       "Transaction not pending."
     );
     _;
@@ -104,8 +112,13 @@ contract MultiSig is Ownable {
   modifier requestIsPending(uint256 _requestId) {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
+    ReqStatus _status = gR.status;
     require(
-      !gR.approved && !gR.rejected && !gR.cancelled && gR.approvals < t.requiredApprovals && gR.rejects < t.requiredApprovals,
+      _status != ReqStatus.Approved 
+      && _status != ReqStatus.Rejected 
+      && _status != ReqStatus.Cancelled 
+      && gR.approvals < t.requiredApprovals 
+      && gR.rejects < t.requiredApprovals,
       "Request not pending."
     );
     _;
@@ -130,34 +143,36 @@ contract MultiSig is Ownable {
     _;
   }
   
-  event TransferApproved(uint256 indexed txId);
-  event TransferRejected(uint256 indexed txId);
-  event TransferCancelled(uint256 indexed txId);
+  event TransferApproved(uint256 indexed txId, uint256 indexed tokenId);
+  event TransferRejected(uint256 indexed txId, uint256 indexed tokenId);
+  event TransferCancelled(uint256 indexed txId, uint256 indexed tokenId);
+
   event TransferRequestRejected(uint256 indexed txId, uint256 indexed tokenId, address indexed signatory);
   event TransferRequestApproved(uint256 indexed txId, uint256 indexed tokenId, address indexed signatory);
-  event TransferTokenRequest(uint256 txId, uint256 indexed tokenId, address indexed recipient, uint256 amount);
+  event TransferTokenRequest(uint256 indexed txId, uint256 indexed tokenId, address indexed recipient, uint256 amount);
 
-  event AddSignatoryApproved(uint256 indexed tokenId, address indexed account);
-  event AddSignatoryRejected(uint256 indexed tokenId, address indexed signatory);
-  event AddSignatoryCancelled(uint256 indexed tokenId, address indexed signatory);
-  event AddSignatoryRequestRejected(uint256 indexed tokenId, address indexed signatory, address indexed actor);
-  event AddSignatoryRequestApproved(uint256 indexed tokenId, address indexed signatory, address indexed actor);
+  event AddSignatoryApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, uint requiredApprovals);
+  event AddSignatoryRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
+  event AddSignatoryCancelled(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
+
+  event AddSignatoryRequestRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
+  event AddSignatoryRequestApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
+
   event AddTokenSignatoryRequest(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
 
-  event RemoveSignatoryApproved(uint256 indexed tokenId, address indexed signatory);
-  event RemoveSignatoryRejected(uint256 indexed tokenId, address indexed signatory);
-  event RemoveSignatoryCancelled(uint256 indexed tokenId, address indexed signatory);
-  event RemoveSignatoryRequestRejected(uint256 indexed tokenId, address indexed signatory, address indexed actor);
-  event RemoveSignatoryRequestApproved(uint256 indexed tokenId, address indexed signatory, address indexed actor);
+  event RemoveSignatoryApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
+  event RemoveSignatoryRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
+  event RemoveSignatoryCancelled(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
+  event RemoveSignatoryRequestRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
+  event RemoveSignatoryRequestApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
   event RemoveTokenSignatoryRequest(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
 
-  event TokenAdded(uint256 indexed tokenId, string indexed tokenSymbol, uint256 amount, address creator);
-  event TokenWalletInitialized(uint256 indexed tokenId, string name, string symbol);
-  event TokenOwnershipTransferred(uint256 indexed tokenId, address indexed previousOwner, address indexed newOwner);
+  event TokenWalletAdded(uint256 indexed tokenId, string indexed symbol, string indexed name, string tokenType, address tokenContract, address creator, uint256 balance);
+  event TokenWalletInitialized(uint256 indexed tokenId);
+  event TokenWalletOwnershipTransferred(uint256 indexed tokenId, address indexed previousOwner, address indexed newOwner);
 
   uint256 txCount;
   mapping (uint256 => Transaction) transactions;
-  mapping (address => uint[]) userTransactions;
 
   uint256 tokenCount;
   mapping (uint256 => Token) tokens;
@@ -166,19 +181,16 @@ contract MultiSig is Ownable {
 
   uint256 requestCount;
   mapping (uint256 => GovernanceRequest) requests;
-  mapping (address => uint256[]) userAddSignatoryRequests;
-  mapping (address => uint256[]) userRemoveSignatoryRequests;
 
   function transferToken(uint256 _tokenId, address payable _recipient, uint256 _amount) external tokenExists(_tokenId) isTokenSignatory(_tokenId) returns(bool) {
-    
     Token storage t = tokens[_tokenId];
     
     require(_amount > 0, "Transaction: send at least one token unit.");
     require(t.balance >= _amount, "Transaction: not enough token balance.");
     require(_recipient != address(0x0), "Transaction: valid recipient address required.");
 
-    t.balance                 -= _amount;
     uint256 txId              = ++txCount;
+    t.balance                 = t.balance.sub(_amount);
     Transaction storage tTx   = transactions[txId];
     
     tTx.amount      = _amount;
@@ -187,13 +199,6 @@ contract MultiSig is Ownable {
     tTx.recipient   = _recipient;
     tTx.txHash      = blockhash(block.number);
     tTx.timeCreated = block.timestamp;
-
-    for(uint256 i = 0; i < t.signatories.length; i++) {
-      address _approver = t.signatories[i];
-      if (tokenTxApprovers[_tokenId][_approver]) {
-        userTransactions[_approver].push(txId);
-      }
-    }
 
     emit TransferTokenRequest(txId, _tokenId, _recipient, _amount);
 
@@ -210,7 +215,7 @@ contract MultiSig is Ownable {
     Transaction storage tTx = transactions[_txId];
     Token storage  t = tokens[tTx.tokenId];
 
-    tTx.approvals += 1;
+    tTx.approvals = tTx.approvals.add(1);
     tTx.approvers[_approver] = true;
 
     emit TransferRequestApproved(_txId, tTx.tokenId, _approver);
@@ -226,7 +231,7 @@ contract MultiSig is Ownable {
         transferEther(tTx);
       }
 
-      emit TransferApproved(_txId);
+      emit TransferApproved(_txId, tTx.tokenId);
     }
     return true;
   }
@@ -236,7 +241,7 @@ contract MultiSig is Ownable {
     IERC20 tokenContract = IERC20(_t.contractAddress);
     tokenContract.transfer(_tx.recipient, _tx.amount);
 
-    _tx.approved = true;
+    _tx.status = ReqStatus.Approved;
     _tx.timeApproved = block.timestamp;
 
     return true;
@@ -244,7 +249,7 @@ contract MultiSig is Ownable {
 
   function transferEther(Transaction storage _tx) private returns(bool) {
     _tx.recipient.transfer(_tx.amount);
-    _tx.approved = true;
+    _tx.status = ReqStatus.Approved;
     _tx.timeApproved = block.timestamp;
 
     return true;
@@ -254,17 +259,17 @@ contract MultiSig is Ownable {
     Transaction storage tTx = transactions[_txId];
     Token storage  t = tokens[tTx.tokenId];
 
-    tTx.rejects += 1;
+    tTx.rejects = tTx.rejects.add(1);
     tTx.rejecters[msg.sender] = true;
 
     emit TransferRequestRejected(_txId, t.id, msg.sender);
 
     if(tTx.rejects == t.requiredApprovals ) {
-      tTx.rejected = true;
+      tTx.status = ReqStatus.Rejected;
       tTx.timeRejected = block.timestamp;
-      t.balance += tTx.amount;
+      t.balance = t.balance.add(tTx.amount);
 
-      emit TransferRejected(_txId);
+      emit TransferRejected(_txId, tTx.tokenId);
     }
 
     return true;
@@ -275,11 +280,11 @@ contract MultiSig is Ownable {
     Transaction storage tTx = transactions[_txId];
     Token storage  t = tokens[tTx.tokenId];
 
-    tTx.cancelled = true;
+    tTx.status = ReqStatus.Cancelled;
     tTx.timeCancelled = block.timestamp;
-    t.balance += tTx.amount;
+    t.balance = t.balance.add(tTx.amount);
 
-    emit TransferCancelled(_txId);
+    emit TransferCancelled(_txId, tTx.tokenId);
 
     return true;
   }
@@ -292,7 +297,7 @@ contract MultiSig is Ownable {
 
     if(!t.initialized) {
       require(msg.sender == t.creator, "Signatory: pre signatory approval reserved for creator.");
-      return addSignatory(t, _signatory);
+      return addSignatory(t, _signatory, 0);
     }
 
     uint256 requestId = ++requestCount;
@@ -302,15 +307,8 @@ contract MultiSig is Ownable {
     gR.tokenId      = _tokenId;
     gR.signatory    = _signatory;
     gR.initiator    = msg.sender;
-    gR.requestType  = ADD_SIG_REQ;
+    gR.requestType  = GovernanceRequestSide.AddSignatory;
     gR.timeCreated  = block.timestamp;
-
-    for(uint256 i = 0; i < t.signatories.length; i++) {
-      address _approver = t.signatories[i];
-      if (tokenTxApprovers[_tokenId][_approver]) {
-        userAddSignatoryRequests[_approver].push(requestId);
-      }
-    }
 
     emit AddTokenSignatoryRequest(requestId, _tokenId, _signatory);
 
@@ -325,8 +323,8 @@ contract MultiSig is Ownable {
     require(tokenTxApprovers[_tokenId][_signatory], "Signatory: cannot remove unavailable signatory.");
 
     if(!t.initialized) {
-      require(msg.sender == t.creator, "Signatory: pre signatory approval reserved for creator.");
-      return removeSignatory(t, _signatory);
+      require(msg.sender == t.creator, "Pre signatory approval reserved for creator.");
+      return removeSignatory(t, _signatory, 0);
     }
 
     uint256 requestId = ++requestCount;
@@ -336,15 +334,8 @@ contract MultiSig is Ownable {
     gR.tokenId      = _tokenId;
     gR.signatory    = _signatory;
     gR.initiator    = msg.sender;
-    gR.requestType  = REM_SIG_REQ;
+    gR.requestType  = GovernanceRequestSide.RemoveSignatory;
     gR.timeCreated  = block.timestamp;
-
-    for(uint256 i = 0; i < t.signatories.length; i++) {
-      address _approver = t.signatories[i];
-      if (tokenTxApprovers[_tokenId][_approver]) {
-        userRemoveSignatoryRequests[_approver].push(requestId);
-      }
-    }
 
     emit RemoveTokenSignatoryRequest(requestId, _tokenId, _signatory);
 
@@ -357,24 +348,24 @@ contract MultiSig is Ownable {
     
     require(
       keccak256(abi.encodePacked(_name)) != keccak256(abi.encodePacked("")),
-      "Add ERC20: invalid wallet name."
+      "Invalid wallet name."
     );
     require(isContract(_contractAddress), "Add ERC20: invalid contract address.");
 
     IERC20 token = IERC20(_contractAddress);
-    require(token.allowance(msg.sender, address(this)) >= _amount, "Add ERC20: approve enough spending allowance to contract.");
+    require(token.allowance(msg.sender, address(this)) >= _amount, "Approve enough spending allowance to contract.");
 
     string memory _symbol = token.symbol();
 
-    token.transferFrom(msg.sender, address(this), _amount);
+    require(token.transferFrom(msg.sender, address(this), _amount), "Transfer of token failed");
 
     tokenId = addToken(msg.sender, _name, _symbol, "erc20", _contractAddress, _amount);
   }
 
   function addEther(string memory _name) public payable returns(uint256 tokenId) {
     uint256 _amount = msg.value;
-    require(keccak256(abi.encodePacked(_name)) != keccak256(abi.encodePacked("")), "Add Ether: invalid wallet name");
-    require(_amount > 0, "Add Ether: send at least 1 wei");
+    require(keccak256(abi.encodePacked(_name)) != keccak256(abi.encodePacked("")), "Invalid wallet name");
+    require(_amount > 0, "Send at least 1 wei");
     tokenId = addToken(msg.sender, _name, "ETH", "ether", address(0), _amount);  
   }
 
@@ -386,19 +377,21 @@ contract MultiSig is Ownable {
     t.id                = tokenId;
     t.name              = _name;
     t.symbol            = _symbol;
-    t.creator             = _from;
+    t.creator           = _from;
     t.tokenType         = _tokenType;
     t.contractAddress   = _contractAddress;
     t.balance           = _value;
-    addSignatory(t, _from);
-    emit TokenAdded(tokenId, _symbol, _value, _from);
+
+    addSignatory(t, _from, 0);
+
+    emit TokenWalletAdded(tokenId, _symbol, _name, _tokenType, address(0), _from, _value);
   }
 
   function initializeWallet(uint256 _tokenId) public tokenExists(_tokenId) isTokenCreator(_tokenId) returns(bool initialized) {
     Token storage t = tokens[_tokenId];
     t.initialized = true;
     initialized = t.initialized;
-    emit TokenWalletInitialized(_tokenId, t.name, t.symbol);
+    emit TokenWalletInitialized(_tokenId);
   }
 
   function approveSignatoryAddition(uint256 _requestId) public requestExists(_requestId) requestIsPending(_requestId) canApproveRequest(_requestId) returns(bool){
@@ -406,35 +399,34 @@ contract MultiSig is Ownable {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
 
-    require(gR.requestType == ADD_SIG_REQ, "Signatory: invalid approve request.");
+    require(gR.requestType == GovernanceRequestSide.AddSignatory, "Invalid approve request.");
 
     return approveSignatoryAddition(gR, t, msg.sender);    
   }
 
   function approveSignatoryAddition(GovernanceRequest storage gR, Token storage t, address approver) private returns(bool) {
-    gR.approvals += 1;
+    gR.approvals = gR.approvals.add(1);
     gR.approvers[approver] = true;
 
-    emit AddSignatoryRequestApproved(t.id, gR.signatory, approver);
+    emit AddSignatoryRequestApproved(gR.id, t.id, gR.signatory, approver);
 
     if(gR.approvals == t.requiredApprovals) {
-      gR.approved = true;
+      gR.status = ReqStatus.Approved;
       gR.timeApproved = block.timestamp;
-      addSignatory(t, gR.signatory);
+      addSignatory(t, gR.signatory, gR.id);
     }
 
     return true;
   }
 
-  function addSignatory(Token storage t, address _account) private returns(bool) {
-    t.signatories.push(_account);
+  function addSignatory(Token storage t, address _account, uint256 reqId) private returns(bool) {
     tokenTxApprovers[t.id][_account] = true;
-    t.activeSignatories += 1;
+    t.activeSignatories = t.activeSignatories.add(1);
 
     userTokens[_account].push(t.id);
 
     setRequiredApprovals(t);
-    emit AddSignatoryApproved(t.id, _account);
+    emit AddSignatoryApproved(reqId, t.id, _account, t.requiredApprovals);
     return true;
   }
 
@@ -443,16 +435,16 @@ contract MultiSig is Ownable {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
 
-    require(gR.requestType == ADD_SIG_REQ, "Signatory: invalid reject request.");
+    require(gR.requestType == GovernanceRequestSide.AddSignatory, "Invalid reject request.");
 
-    gR.rejects += 1;
+    gR.rejects = gR.rejects.add(1);
     gR.rejecters[msg.sender] = true;
-    emit AddSignatoryRequestApproved(gR.tokenId, gR.signatory, msg.sender);
+    emit AddSignatoryRequestApproved(gR.id, gR.tokenId, gR.signatory, msg.sender);
 
     if(gR.rejects == t.requiredApprovals) {
-      gR.rejected = true;
+      gR.status = ReqStatus.Rejected;
       gR.timeRejected = block.timestamp;
-      emit AddSignatoryRejected(gR.tokenId, gR.signatory);
+      emit AddSignatoryRejected(gR.id, gR.tokenId, gR.signatory);
     }
 
     return true;
@@ -462,43 +454,32 @@ contract MultiSig is Ownable {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
 
-    require(gR.requestType == REM_SIG_REQ, "Signatory: invalid remove request.");
+    require(gR.requestType == GovernanceRequestSide.RemoveSignatory, "Invalid remove request.");
 
     return approveSignatoryRemoval(gR, t, msg.sender);    
   }
 
   function approveSignatoryRemoval(GovernanceRequest storage gR, Token storage t, address rejecter) private returns(bool) {
-    gR.approvals += 1;
+    gR.approvals = gR.approvals.add(1);
     gR.approvers[rejecter] = true;
 
-    emit RemoveSignatoryRequestApproved(gR.tokenId, gR.signatory, rejecter);
+    emit RemoveSignatoryRequestApproved(gR.id, gR.tokenId, gR.signatory, rejecter);
 
     if(gR.approvals == t.requiredApprovals) {
-      gR.approved = true;
+      gR.status = ReqStatus.Approved;
       gR.timeApproved = block.timestamp;
-      removeSignatory(t, gR.signatory);
+      removeSignatory(t, gR.signatory, gR.id);
     }
 
     return true;
   }
 
-  function removeSignatory(Token storage t, address _account) private returns(bool) {
-    for(uint256 i = 0; i < t.signatories.length; i++) {
-      if(t.signatories[i] == _account) {
-        delete t.signatories[i];
-      }
-    }
-    for(uint256 i = 0; i < userTokens[_account].length; i++) {
-      if (userTokens[_account][i] == t.id ) {
-        delete userTokens[_account][i];
-      }
-    }
-
-    t.activeSignatories -= 1;
+  function removeSignatory(Token storage t, address _account, uint256 reqId) private returns(bool) {
+    t.activeSignatories = t.activeSignatories.sub(1);
     tokenTxApprovers[t.id][_account] = false;
 
     setRequiredApprovals(t);
-    emit RemoveSignatoryApproved(t.id, _account);
+    emit RemoveSignatoryApproved(reqId, t.id, _account);
     return true;
   }
 
@@ -506,17 +487,17 @@ contract MultiSig is Ownable {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
 
-    require(gR.requestType == REM_SIG_REQ, "Signatory: invalid reject request.");
+    require(gR.requestType == GovernanceRequestSide.RemoveSignatory, "Invalid reject request.");
 
-    gR.rejects += 1;
+    gR.rejects = gR.rejects.add(1);
     gR.rejecters[msg.sender] = true;
 
-    emit RemoveSignatoryRequestRejected(gR.tokenId, gR.signatory, msg.sender);
+    emit RemoveSignatoryRequestRejected(gR.id, gR.tokenId, gR.signatory, msg.sender);
 
     if(gR.rejects == t.requiredApprovals) {
-      gR.rejected = true;
+      gR.status = ReqStatus.Rejected;
       gR.timeRejected = block.timestamp;
-      emit RemoveSignatoryRejected(gR.tokenId, gR.signatory);
+      emit RemoveSignatoryRejected(gR.id, gR.tokenId, gR.signatory);
     }
 
     return true;
@@ -525,17 +506,17 @@ contract MultiSig is Ownable {
   function cancelRequest(uint256 _requestId) public requestExists(_requestId) requestIsPending(_requestId) returns(bool) {
     
     GovernanceRequest storage gR = requests[_requestId];
-    require(gR.initiator == msg.sender, "Request: not request initiator.");
+    require(gR.initiator == msg.sender, "Not request initiator.");
 
-    gR.cancelled = true;
+    gR.status = ReqStatus.Cancelled;
     gR.timeCancelled = block.timestamp;
 
-    if(gR.requestType == ADD_SIG_REQ) {
-      emit AddSignatoryCancelled(gR.tokenId, gR.signatory);
+    if(gR.requestType == GovernanceRequestSide.AddSignatory) {
+      emit AddSignatoryCancelled(gR.id, gR.tokenId, gR.signatory);
     }
 
-    if(gR.requestType == REM_SIG_REQ) {
-      emit RemoveSignatoryCancelled(gR.tokenId, gR.signatory);
+    if(gR.requestType == GovernanceRequestSide.RemoveSignatory) {
+      emit RemoveSignatoryCancelled(gR.id, gR.tokenId, gR.signatory);
     }
 
     return true;
