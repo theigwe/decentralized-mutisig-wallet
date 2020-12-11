@@ -64,6 +64,7 @@ contract MultiSig is Ownable {
   }
 
   enum ReqStatus {
+    Pending,
     Approved,
     Rejected,
     Cancelled
@@ -90,18 +91,15 @@ contract MultiSig is Ownable {
   }
 
   modifier requestExists(uint256 _requestId) {
-    require(_requestId > 0 && _requestId <= requestCount, "Request not missing.");
+    require(_requestId > 0 && _requestId <= requestCount, "Request not found.");
     _;
   }
 
   modifier transactionIsPending(uint256 _txId) {
     Transaction storage _tx = transactions[_txId];
     Token storage t = tokens[_tx.tokenId];
-    ReqStatus _status = _tx.status;
     require(
-      _status != ReqStatus.Approved 
-      && _status != ReqStatus.Rejected 
-      && _status != ReqStatus.Cancelled 
+      _tx.status == ReqStatus.Pending 
       && _tx.approvals < t.requiredApprovals 
       && _tx.rejects < t.requiredApprovals,
       "Transaction not pending."
@@ -112,11 +110,8 @@ contract MultiSig is Ownable {
   modifier requestIsPending(uint256 _requestId) {
     GovernanceRequest storage gR = requests[_requestId];
     Token storage t = tokens[gR.tokenId];
-    ReqStatus _status = gR.status;
     require(
-      _status != ReqStatus.Approved 
-      && _status != ReqStatus.Rejected 
-      && _status != ReqStatus.Cancelled 
+      gR.status == ReqStatus.Pending 
       && gR.approvals < t.requiredApprovals 
       && gR.rejects < t.requiredApprovals,
       "Request not pending."
@@ -154,10 +149,8 @@ contract MultiSig is Ownable {
   event AddSignatoryApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, uint requiredApprovals);
   event AddSignatoryRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
   event AddSignatoryCancelled(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
-
   event AddSignatoryRequestRejected(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
   event AddSignatoryRequestApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory, address actor);
-
   event AddTokenSignatoryRequest(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
 
   event RemoveSignatoryApproved(uint256 indexed requestId, uint256 indexed tokenId, address indexed signatory);
@@ -196,6 +189,7 @@ contract MultiSig is Ownable {
     tTx.amount      = _amount;
     tTx.tokenId     = _tokenId;
     tTx.initiator   = msg.sender;
+    tTx.status      = ReqStatus.Pending;
     tTx.recipient   = _recipient;
     tTx.txHash      = blockhash(block.number);
     tTx.timeCreated = block.timestamp;
@@ -307,6 +301,7 @@ contract MultiSig is Ownable {
     gR.tokenId      = _tokenId;
     gR.signatory    = _signatory;
     gR.initiator    = msg.sender;
+    gR.status       = ReqStatus.Pending;
     gR.requestType  = GovernanceRequestSide.AddSignatory;
     gR.timeCreated  = block.timestamp;
 
@@ -334,6 +329,7 @@ contract MultiSig is Ownable {
     gR.tokenId      = _tokenId;
     gR.signatory    = _signatory;
     gR.initiator    = msg.sender;
+    gR.status       = ReqStatus.Pending;
     gR.requestType  = GovernanceRequestSide.RemoveSignatory;
     gR.timeCreated  = block.timestamp;
 

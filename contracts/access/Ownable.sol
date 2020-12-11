@@ -4,7 +4,7 @@ pragma solidity >=0.7.0 <0.8.0;
 
 import "../interfaces/IOwnable.sol";
 
-contract Ownable is IOwnable {
+abstract contract Ownable is IOwnable {
   
   address __owner;
 
@@ -14,7 +14,7 @@ contract Ownable is IOwnable {
   }
 
   constructor () {
-    __owner == msg.sender;
+    __owner = msg.sender;
   }
 
   function owner() public view override returns(address) {
