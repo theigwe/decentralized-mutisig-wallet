@@ -380,7 +380,7 @@ contract MultiSig is Ownable {
 
     addSignatory(t, _from, 0);
 
-    emit TokenWalletAdded(tokenId, _symbol, _name, _tokenType, address(0), _from, _value);
+    emit TokenWalletAdded(tokenId, _symbol, _name, _tokenType, _contractAddress, _from, _value);
   }
 
   function initializeWallet(uint256 _tokenId) public tokenExists(_tokenId) isTokenCreator(_tokenId) returns(bool initialized) {
