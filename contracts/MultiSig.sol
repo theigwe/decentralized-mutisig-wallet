@@ -521,7 +521,7 @@ contract MultiSig is Ownable {
   function setRequiredApprovals(Token storage t) private returns(bool){
     uint256 _activeSign = t.activeSignatories;
 
-    if(_activeSign > 3) {
+    if(_activeSign < 3) {
       t.requiredApprovals = _activeSign;
       return true;
     }
